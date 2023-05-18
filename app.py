@@ -1,16 +1,16 @@
 import os
 import json
 import traceback
-from enum import Enum
+import random
 
+from enum import Enum
 from loguru import logger
 from chalice import Chalice
-from functools import wraps
 
 from telegram.ext import (
     Dispatcher,
     MessageHandler,
-    Filters,
+    Filters, CommandHandler,
 )
 from telegram import ParseMode, Update, Bot
 
@@ -20,8 +20,6 @@ from chalicelib.utils import generate_transcription, send_typing_action
 # Telegram token
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
-# add local route to telegram bot testing
-STAGE = os.environ['STAGE']
 
 # Chalice Lambda app
 
@@ -40,6 +38,9 @@ class Stage(Enum):
     LOCAL = 'local'
     DEV = 'dev'
     PROD = 'prod'
+
+
+STAGE = Stage(os.environ['STAGE'])
 
 
 #####################
@@ -91,6 +92,29 @@ def process_message(update, context):
         )
 
 
+#####################
+# Commands #
+#####################
+
+def get_random_greeting():
+    with open('chalicelib/ui/ui_greetings.json', 'r') as f:
+        greetings = json.load(f)
+    return random.choice(greetings)
+
+
+def start_command(update, context):
+    greeting = get_random_greeting()
+    context.bot.send_message(
+        chat_id=update.message.chat_id,
+        text=f"{greeting['greeting']}\n\n{greeting['description']}\n\n{greeting['prompt']}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+def help_command(update, context):
+    start_command(update, context)
+
+
 ############################
 # Lambda Handler functions #
 ############################
@@ -98,6 +122,8 @@ def process_message(update, context):
 
 @app.lambda_function(name=MESSAGE_HANDLER_LAMBDA)
 def message_handler(event, context):
+    dispatcher.add_handler(CommandHandler("start", start_command))
+    dispatcher.add_handler(CommandHandler("help", help_command))
     dispatcher.add_handler(MessageHandler(Filters.text, process_message))
     dispatcher.add_handler(MessageHandler(Filters.voice, process_voice_message))
 
@@ -110,23 +136,12 @@ def message_handler(event, context):
     return {"statusCode": 200}
 
 
-def local_only(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        if STAGE == Stage.LOCAL:
-            return func(*args, **kwargs)
-        else:
-            logger.error("This function can only be run in the 'local' stage.")
-            return None
-
-    return wrapper
-
-
-@local_only
-@app.route('/message_handler', methods=['POST'], content_types=['application/json'])
-def message_handler_route():
-    request = app.current_request
-    raw_body = request.raw_body
-    json_body = json.loads(raw_body)
-    response = {"body": json.dumps(json_body)}
-    return message_handler(response, None)
+logger.info(f"STAGE: {STAGE}")
+if STAGE == Stage.LOCAL:
+    @app.route('/message_handler', methods=['POST'], content_types=['application/json'])
+    def message_handler_route():
+        request = app.current_request
+        raw_body = request.raw_body
+        json_body = json.loads(raw_body)
+        response = {"body": json.dumps(json_body)}
+        return message_handler(response, None)
