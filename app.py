@@ -1,9 +1,12 @@
 import os
 import json
 import traceback
+from enum import Enum
 
 from loguru import logger
 from chalice import Chalice
+from functools import wraps
+
 from telegram.ext import (
     Dispatcher,
     MessageHandler,
@@ -17,6 +20,8 @@ from chalicelib.utils import generate_transcription, send_typing_action
 # Telegram token
 TOKEN = os.environ["TELEGRAM_TOKEN"]
 OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
+# add local route to telegram bot testing
+STAGE = os.environ['STAGE']
 
 # Chalice Lambda app
 
@@ -29,6 +34,12 @@ app.debug = True
 # Telegram bot
 bot = Bot(token=TOKEN)
 dispatcher = Dispatcher(bot, None, use_context=True)
+
+
+class Stage(Enum):
+    LOCAL = 'local'
+    DEV = 'dev'
+    PROD = 'prod'
 
 
 #####################
@@ -93,7 +104,29 @@ def message_handler(event, context):
     try:
         dispatcher.process_update(Update.de_json(json.loads(event["body"]), bot))
     except Exception as e:
-        print(e)
+        logger.error(e)
         return {"statusCode": 500}
 
     return {"statusCode": 200}
+
+
+def local_only(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if STAGE == Stage.LOCAL:
+            return func(*args, **kwargs)
+        else:
+            logger.error("This function can only be run in the 'local' stage.")
+            return None
+
+    return wrapper
+
+
+@local_only
+@app.route('/message_handler', methods=['POST'], content_types=['application/json'])
+def message_handler_route():
+    request = app.current_request
+    raw_body = request.raw_body
+    json_body = json.loads(raw_body)
+    response = {"body": json.dumps(json_body)}
+    return message_handler(response, None)
