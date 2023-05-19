@@ -1,4 +1,7 @@
+import json
 import os
+import random
+
 import pinecone
 
 from chalicelib.utils import google_translate, generate_embedding
@@ -18,7 +21,8 @@ class TextSearch:
         top_texts_count = 20
         # assumed to be less than that
         max_meanings_count = 2000
-        similar_texts = self.index.query(query_embedding, namespace="text", top_k=top_texts_count, include_metadata=True)
+        similar_texts = self.index.query(query_embedding, namespace="text", top_k=top_texts_count,
+                                         include_metadata=True)
         similar_meanings = self.index.query(query_embedding, namespace="meaning", top_k=max_meanings_count,
                                             include_metadata=True)
 
@@ -101,17 +105,24 @@ def _search(query, top_k):
     return top_results
 
 
+def get_random_response():
+    with open('chalicelib/ui/ui_results.json', 'r', encoding='utf-8') as f:
+        responses = json.load(f)["responses"]
+    return random.choice(responses)
+
+
 def search(query):
     logger.info(f"User query: {query}")
     results = _search(query, 5)
     logger.info(f"Results: {len(results)}")
 
     if len(results) > 0:
-        answer = 'Лучшие результаты по вопросу "{}":\n\n'.format(query)
+        answer = '{}\n\n'.format(get_random_response())
         for count, result in enumerate(results, start=1):
-            answer += '{}) {}\n{}\nРелевантность по тексту: {}\nРелевантность по смыслу: {}\n\n'\
-                .format(count, remove_capslock(result['title']), f'{result["url"]}', result['text_relevance'], result['meaning_relevance'])
+            answer += '{}) {}\n{}\n\n' \
+                .format(count, remove_capslock(result['title']), f'{result["url"]}')
     else:
-        answer = 'Извините, по вопросу "{}" ничего не найдено.'.format(query)
+        answer = "Ой, кажется, я не смог найти точный ответ на ваш вопрос 🤔 " \
+                 "Можете уточнить вопрос для более точного поиска? 🎯"
 
     return answer

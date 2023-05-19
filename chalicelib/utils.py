@@ -1,3 +1,4 @@
+import time
 import uuid
 import os
 import json
@@ -10,18 +11,51 @@ from loguru import logger
 from telegram import ChatAction
 from googletrans import Translator
 
+from threading import Thread
 
-def send_typing_action(func):
+
+class TypingThread(Thread):
+    def __init__(self, context, chat_id):
+        Thread.__init__(self)
+        self.context = context
+        self.chat_id = chat_id
+        self.done = False
+
+    def run(self):
+        while not self.done:
+            self.context.bot.send_chat_action(
+                chat_id=self.chat_id, action=ChatAction.TYPING
+            )
+            time.sleep(3)
+
+    def stop(self):
+        self.done = True
+
+
+def send_typing_action(pre_func=None):
     """Sends typing action while processing func command."""
 
-    @wraps(func)
-    def command_func(update, context, *args, **kwargs):
-        context.bot.send_chat_action(
-            chat_id=update.effective_message.chat_id, action=ChatAction.TYPING
-        )
-        return func(update, context, *args, **kwargs)
+    def decorator(func):
+        @wraps(func)
+        def command_func(update, context, *args, **kwargs):
+            chat_id = update.effective_message.chat_id
 
-    return command_func
+            if pre_func:
+                pre_func(context, chat_id)
+
+            typing_thread = TypingThread(context, chat_id)
+            typing_thread.start()
+            try:
+                result = func(update, context, *args, **kwargs)
+            finally:
+                typing_thread.stop()
+
+            return result
+
+        return command_func
+
+    return decorator
+
 
 
 def generate_transcription(file):

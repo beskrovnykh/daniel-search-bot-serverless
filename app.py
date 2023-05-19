@@ -47,7 +47,22 @@ STAGE = Stage(os.environ['STAGE'])
 # Telegram Handlers #
 #####################
 
-@send_typing_action
+def get_random_waiting_text():
+    with open('chalicelib/ui/ui_searching.json', 'r') as f:
+        data = json.load(f)
+    return random.choice(data['responses'])
+
+
+def send_waiting_message(context, chat_id):
+    waiting_text = get_random_waiting_text()
+    context.bot.send_message(
+        chat_id=chat_id,
+        text=waiting_text,
+        disable_web_page_preview=True
+    )
+
+
+@send_typing_action(send_waiting_message)
 def process_voice_message(update, context):
     # Get the voice message from the update object
     voice_message = update.message.voice
@@ -58,10 +73,19 @@ def process_voice_message(update, context):
     # Download the voice message file
     transcript_msg = generate_transcription(file)
 
+    chat_id = update.message.chat_id
+    if is_bad_word(transcript_msg):
+        bad_word_warning = get_random_bad_word_warning()
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=bad_word_warning['bad_words_response'],
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     logger.info(transcript_msg)
     message = search(transcript_msg)
 
-    chat_id = update.message.chat_id
     context.bot.send_message(
         chat_id=chat_id,
         text=message,
@@ -69,10 +93,31 @@ def process_voice_message(update, context):
     )
 
 
-@send_typing_action
+def is_bad_word(text):
+    # TODO: add profanity check
+    return False
+
+
+def get_random_bad_word_warning():
+    with open('chalicelib/ui/ui_badwords.json', 'r') as f:
+        badwords = json.load(f)
+    return random.choice(badwords)
+
+
+@send_typing_action(send_waiting_message)
 def process_message(update, context):
     chat_id = update.message.chat_id
     chat_text = update.message.text
+
+    if is_bad_word(chat_text):
+        bad_word_warning = get_random_bad_word_warning()
+        context.bot.send_message(
+            chat_id=chat_id,
+            text=bad_word_warning['bad_words_response'],
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
     try:
         message = search(chat_text)
         logger.info(message)
@@ -81,14 +126,16 @@ def process_message(update, context):
         app.log.error(traceback.format_exc())
         context.bot.send_message(
             chat_id=chat_id,
-            text="There was an error trying to answer your message :(",
+            text="Упс! Кажется, что-то пошло не так 😬 Но не волнуйтесь, наши кодовые мастера уже вовсю трудятся над исправлением проблемы! ⚙️",
             parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
         )
     else:
         context.bot.send_message(
             chat_id=chat_id,
             text=message,
             parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True
         )
 
 
